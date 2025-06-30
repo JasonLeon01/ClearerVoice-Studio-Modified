@@ -5,10 +5,10 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import torch 
+import torch
 import torch.nn as nn
 import numpy as np
-import os 
+import os
 import sys
 import librosa
 import torchaudio
@@ -20,7 +20,7 @@ def decode_one_audio(model, device, inputs, args):
         return decode_one_audio_mossformer2_ss_16k(model, device, inputs, args)
     else:
        print("in decode, {args.network} is found!")
-       return 
+       return
 
 def decode_one_audio_mossformer2_ss_16k(model, device, inputs, args):
     out = []
@@ -68,11 +68,17 @@ def decode_one_audio_mossformer2_ss_16k(model, device, inputs, args):
         for spk in range(args.num_spks):
             out.append(out_list[spk][0,:].cpu().numpy())
 
-    max_abs = 0
+    # max_abs = 0
+    # for spk in range(args.num_spks):
+    #     if max_abs < max(abs(out[spk])):
+    #         max_abs = max(abs(out[spk]))
+    # for spk in range(args.num_spks):
+    #     out[spk] = out[spk]/max_abs
     for spk in range(args.num_spks):
-        if max_abs < max(abs(out[spk])):
-            max_abs = max(abs(out[spk]))
-    for spk in range(args.num_spks):
-        out[spk] = out[spk]/max_abs
+        rms = np.sqrt(np.mean(np.square(out[spk])))
+        if rms > 0.0:
+            target_rms = 0.05
+            out[spk] = out[spk] * (target_rms / rms)
+        out[spk] = np.tanh(out[spk])
     return out
 

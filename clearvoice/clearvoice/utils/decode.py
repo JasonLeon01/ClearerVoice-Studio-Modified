@@ -190,6 +190,13 @@ def decode_one_audio_frcrn_se_16k(model, device, inputs, args):
         # If no segmentation is required, process the entire input
         outputs = model.inference(inputs).detach().cpu().numpy()  # Inference on full input
 
+    for spk in range(args.num_spks):
+        rms = np.sqrt(np.mean(np.square(out[spk])))
+        if rms > 0.0:
+            target_rms = 0.05
+            out[spk] = out[spk] * (target_rms / rms)
+        out[spk] = np.tanh(out[spk])
+
     return outputs  # Return the decoded audio output
 
 def decode_one_audio_mossformergan_se_16k(model, device, inputs, args):

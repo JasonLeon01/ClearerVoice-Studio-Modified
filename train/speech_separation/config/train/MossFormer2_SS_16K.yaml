@@ -13,8 +13,8 @@ num_mossformer_layer: 24
 
 # Train
 load_type: 'one_input_multi_outputs'
-tr_list: 'data/tr_wsj0_2mix_16k.scp'
-cv_list: 'data/cv_wsj0_2mix_16k.scp'
+tr_list: 'data/tr_list.scp'
+cv_list: 'data/cv_list.scp'
 
 init_learning_rate: 0.00015 #learning rate for a new training
 finetune_learning_rate: 0.00005 #learning rate for a finetune training

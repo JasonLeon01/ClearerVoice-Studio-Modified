@@ -617,6 +617,21 @@ class MossFormer_MaskNet(nn.Module):
             nn.Conv1d(out_channels, out_channels, 1), nn.Sigmoid()
         )
 
+########################################################################################
+        self.channel_attention = nn.Sequential(
+            nn.AdaptiveAvgPool1d(1),
+            nn.Conv1d(out_channels, out_channels // 8, kernel_size=1),
+            nn.ReLU(),
+            nn.Conv1d(out_channels // 8, out_channels, kernel_size=1),
+            nn.Sigmoid()
+        )
+        self.multi_scale_1 = nn.Conv1d(in_channels, in_channels//4, kernel_size=3, padding=1)
+        self.multi_scale_2 = nn.Conv1d(in_channels, in_channels//4, kernel_size=5, padding=2)
+        self.multi_scale_3 = nn.Conv1d(in_channels, in_channels//4, kernel_size=7, padding=3)
+        self.multi_scale_4 = nn.Conv1d(in_channels, in_channels//4, kernel_size=1)
+        self.multi_scale_fusion = nn.Conv1d(in_channels, out_channels, kernel_size=1)
+########################################################################################
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Returns the output tensor.
 
@@ -636,9 +651,18 @@ class MossFormer_MaskNet(nn.Module):
         """
         # [B, N, L] - Normalize the input tensor
         x = self.norm(x)
+########################################################################################
+        ms1 = F.relu(self.multi_scale_1(x))
+        ms2 = F.relu(self.multi_scale_2(x))
+        ms3 = F.relu(self.multi_scale_3(x))
+        ms4 = F.relu(self.multi_scale_4(x))
+        multi_scale_features = torch.cat([ms1, ms2, ms3, ms4], dim=1)
+        x_enhanced = self.multi_scale_fusion(multi_scale_features)
+########################################################################################
 
         # [B, N, L] - Apply 1D convolution to encode features
-        x = self.conv1d_encoder(x)
+        # x = self.conv1d_encoder(x)
+        x = self.conv1d_encoder(x_enhanced)
         
         # If using global positional encoding, add the positional embeddings
         if self.use_global_pos_enc:
@@ -651,6 +675,11 @@ class MossFormer_MaskNet(nn.Module):
         # [B, N, S] - Process through the computation block
         x = self.mdl(x)
         x = self.prelu(x)  # Apply PReLU activation
+
+########################################################################################
+        att = self.channel_attention(x)
+        x = x * att
+########################################################################################
 
         # [B, N*spks, S] - Project features to multiple speaker outputs
         x = self.conv1d_out(x)
@@ -741,7 +770,15 @@ class MossFormer(nn.Module):
         
         # Initialize the encoder with 1 input channel and the specified output channels
         self.enc = Encoder(kernel_size=kernel_size, out_channels=in_channels, in_channels=1)
-
+########################################################################################
+        self.spec_enhance = nn.Sequential(
+            nn.Conv1d(in_channels, in_channels, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm1d(in_channels),
+            nn.Conv1d(in_channels, in_channels, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+########################################################################################
         # Initialize the MaskNet with the specified parameters
         self.mask_net = MossFormer_MaskNet(
             in_channels=in_channels,
@@ -772,8 +809,15 @@ class MossFormer(nn.Module):
         Returns:
             out (list): List of output tensors for each speaker, each of shape [B, T].
         """
+########################################################################################
+        original_input = input
+########################################################################################
         # Pass the input through the encoder to extract features
         x = self.enc(input)
+########################################################################################
+        x_enhanced = self.spec_enhance(x)
+        x = x + x_enhanced
+########################################################################################
 
         # Generate the mask for each speaker using the mask net
         mask = self.mask_net(x)
@@ -797,6 +841,11 @@ class MossFormer(nn.Module):
             est_source = F.pad(est_source, (0, 0, 0, T_origin - T_est))  # Pad if estimated length is shorter
         else:
             est_source = est_source[:, :T_origin, :]  # Trim if estimated length is longer
+
+########################################################################################
+        alpha = 0.1
+        est_source[:, :, 0] = est_source[:, :, 0] + alpha * original_input
+########################################################################################
 
         out = []
         # Collect outputs for each speaker
